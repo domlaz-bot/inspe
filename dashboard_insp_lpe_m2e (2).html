@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maquette INSPÉ - Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Masquer la barre de défilement pour les onglets */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- En-tête / Navigation Supérieure -->
+    <header class="bg-slate-900 shadow-md flex-shrink-0 z-10">
+        <div class="max-w-[1600px] mx-auto px-6">
+            <div class="flex items-center justify-between h-16 border-b border-slate-700">
+                <!-- Logo & Titre -->
+                <div class="flex items-center space-x-3 text-white">
+                    <div class="bg-blue-600 p-2 rounded-lg">
+                        <i data-lucide="book-a" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold leading-tight">Maquette INSPÉ</h1>
+                        <p class="text-xs text-blue-300 font-medium tracking-wider">DASHBOARD</p>
+                    </div>
+                </div>
+
+                <!-- Mode Démo Alert -->
+                <div id="demo-alert" class="hidden items-center space-x-2 text-yellow-500 bg-yellow-500/10 px-3 py-1.5 rounded-full border border-yellow-500/20 text-xs font-medium">
+                    <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                    <span>Mode Démo (API restreinte)</span>
+                </div>
+            </div>
+
+            <!-- Onglets (Tabs) générés dynamiquement -->
+            <div class="pt-4 pb-2">
+                <nav id="tabs-container" class="flex space-x-2 overflow-x-auto no-scrollbar"></nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Zone Principale -->
+    <main class="flex-1 overflow-y-auto p-6 md:p-8">
+        <div class="max-w-[1600px] mx-auto">
+            
+            <!-- Barre de Recherche et Titre Table Active -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                <div>
+                    <h2 id="active-table-title" class="text-3xl font-bold text-slate-800 tracking-tight">Chargement...</h2>
+                    <p id="active-table-count" class="text-sm text-slate-500 mt-1 font-medium">0 enregistrements</p>
+                </div>
+                <div class="relative w-full md:w-80">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5"></i>
+                    <input 
+                        type="text" 
+                        id="search-input"
+                        placeholder="Recherche (ex: S1 maths)..." 
+                        class="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    >
+                </div>
+            </div>
+
+            <!-- Filtres de Semestres (Générés dynamiquement) -->
+            <div id="semester-filters-container" class="mb-6 flex flex-wrap gap-2 hidden">
+                <!-- Les boutons seront injectés ici -->
+            </div>
+
+            <!-- Conteneur d'erreurs -->
+            <div id="error-container" class="hidden mb-8 p-4 bg-red-50 text-red-700 border border-red-200 rounded-xl flex items-center space-x-3">
+                <i data-lucide="alert-circle" class="w-5 h-5"></i>
+                <p id="error-message"></p>
+            </div>
+
+            <!-- Conteneur d'affichage des données -->
+            <div id="main-content">
+                <div class="flex justify-center py-20">
+                    <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // --- Configuration ---
+        const GRIST_DOC_ID = 'hMvYeBbXvrS7T8oZastapn';
+        const GRIST_API_BASE = `https://grist.numerique.gouv.fr/api/docs/${GRIST_DOC_ID}`;
+
+        // --- État de l'application ---
+        let tables = [];
+        let activeTableId = '';
+        let records = [];
+        let searchQuery = '';
+        let isDemoMode = false;
+        let selectedSemesters = new Set(); // Pour le filtrage multiple
+
+        // --- Données de Démo ---
+        const DEMO_TABLES = [{ id: 'Maquette_LPE', name: 'Maquette LPE' }, { id: 'Maquette_M2E', name: 'Maquette M2E' }, { id: 'Formateurs', name: 'Formateurs' }];
+        const DEMO_DATA = {
+            'Maquette_LPE': [
+                { id: 1, fields: { Code: 'UE11', Intitule: 'UE11 - Sciences et Technologie', Semestre: 'S1', EC: 'Biologie', Discipline: 'SVT', Vol_CM_INSPE: '10', Vol_TD_INSPE: '20', Vol_TD_EN: '0' } },
+                { id: 2, fields: { Code: 'UE11', Intitule: 'UE11 - Sciences et Technologie', Semestre: 'S1', EC: 'Physique', Discipline: 'Physique-Chimie', Vol_CM_INSPE: '5', Vol_TD_INSPE: '15', Vol_TD_EN: '0' } },
+                { id: 3, fields: { Code: 'UE12', Intitule: 'Mathématiques', Semestre: 'S1', Vol_CM_INSPE: '12', Vol_TD_INSPE: '24', Vol_TD_EN: '12' } }
+            ],
+            'Maquette_M2E': [
+                { id: 1, fields: { Code: 'UE31', Intitule: 'Didactique Avancée', Semestre: 'S3', EC: 'Didactique des Sciences', Discipline: 'SVT', Vol_CM_INSPE: '15', Vol_TD_INSPE: '10' } }
+            ],
+            'Formateurs': [
+                { id: 1, fields: { Nom: 'Dupont', Prenom: 'Jean', Statut: 'PRAG' } }
+            ]
+        };
+
+        // --- Utilitaires de Formatage ---
+        function getDisplayName(id) {
+            if (!id) return 'Table';
+            const normalized = String(id).toLowerCase();
+            if (normalized === 'table1') return 'Maquette LPE';
+            if (normalized === 'table2') return 'Équipe Formateurs';
+            if (normalized === 'formateurs') return 'Équipe Formateurs';
+            return id.replace(/_/g, ' ')
+                     .replace(/([a-z])([A-Z])/g, '$1 $2')
+                     .replace(/\b\w/g, l => l.toUpperCase());
+        }
+
+        function parseNumber(val) {
+            if (val === null || val === undefined || val === '') return 0;
+            if (typeof val === 'number') return val;
+            const match = String(val).replace(/\s/g, '').replace(/,/g, '.').match(/[\d.]+/);
+            return match ? parseFloat(match[0]) : 0;
+        }
+
+        function formatValue(val) {
+            if (val === null || val === undefined) return '';
+            if (Array.isArray(val)) {
+                if (val.length > 0 && (val[0] === 'L' || val[0] === 'l')) {
+                    return val.slice(1).join(', ');
+                }
+                return val.join(', ');
+            }
+            return String(val).trim();
+        }
+
+        // --- Algorithme de Détection des Colonnes ---
+        function detectColumn(cols, type) {
+            if (!cols || !Array.isArray(cols)) return undefined;
+            const normalized = cols.map(c => ({
+                orig: c,
+                low: c.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
+            }));
+
+            const check = (exacts, includes) => {
+                const exactMatch = normalized.find(c => exacts.includes(c.low));
+                if (exactMatch) return exactMatch.orig;
+                
+                const includeMatch = normalized.find(c => {
+                    if (type === 'CM' && c.low.includes('ects')) return false; 
+                    return includes.some(inc => c.low.includes(inc));
+                });
+                return includeMatch ? includeMatch.orig : undefined;
+            };
+
+            switch(type) {
+                case 'EN': return check(['en'], [' en', '_en', '-en', '(en', 'education', 'educ. nat']);
+                case 'INSPE': return check(['inspe'], ['inspe', 'univ']);
+                case 'CODE': return check(['code', 'ue'], ['code ue', 'code_ue']);
+                case 'INTITULE': return check(['intitule', 'titre', 'nom'], ['intitul', 'libelle']);
+                case 'ECTS': return check(['ects'], ['ects', 'credit']);
+                case 'SEMESTRE': return check(['semestre'], ['semestre', 'periode']);
+                case 'EC': return check(['ec'], ['code ec', 'element']);
+                case 'DISCIPLINE': return check(['discipline', 'domaine', 'matiere'], ['discipline', 'domaine', 'matiere']);
+                case 'CM': return check(['cm'], ['cm', 'magistral', 'magistraux']);
+                case 'TD': return check(['td'], ['td', 'dirige']);
+                case 'TP': return check(['tp'], ['tp', 'pratique']);
+                default: return undefined;
+            }
+        }
+
+        // --- API & Chargement ---
+        async function loadTables() {
+            try {
+                const res = await fetch(`${GRIST_API_BASE}/tables`);
+                if (!res.ok) throw new Error(`Erreur HTTP: ${res.status}`);
+                const data = await res.json();
+                tables = data.tables.map(t => ({ id: t.id, name: t.id }));
+                isDemoMode = false;
+                document.getElementById('demo-alert').classList.add('hidden');
+                
+                if (tables.length > 0) {
+                    activeTableId = tables[0].id;
+                    await loadRecords(activeTableId);
+                }
+            } catch (err) {
+                console.warn("Passage en mode démo", err);
+                isDemoMode = true;
+                tables = DEMO_TABLES;
+                document.getElementById('demo-alert').classList.remove('hidden');
+                document.getElementById('demo-alert').classList.add('flex');
+                activeTableId = DEMO_TABLES[0].id;
+                await loadRecords(activeTableId);
+            }
+            renderTabs();
+        }
+
+        async function loadRecords(tableId) {
+            document.getElementById('main-content').innerHTML = `<div class="flex justify-center py-20"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div></div>`;
+            document.getElementById('error-container').classList.add('hidden');
+            selectedSemesters.clear(); 
+            
+            if (isDemoMode) {
+                records = DEMO_DATA[tableId] || [];
+                renderView();
+                return;
+            }
+
+            try {
+                const res = await fetch(`${GRIST_API_BASE}/tables/${tableId}/records`);
+                if (!res.ok) throw new Error("Accès aux données refusé.");
+                const data = await res.json();
+                records = data.records;
+                renderView();
+            } catch (err) {
+                document.getElementById('error-container').classList.remove('hidden');
+                document.getElementById('error-message').textContent = err.message;
+                document.getElementById('main-content').innerHTML = '';
+            }
+        }
+
+        // --- Filtrage Multi-Mots Clés ---
+        function getFilteredRecords(columns) {
+            let filtered = records;
+            const colSemestre = detectColumn(columns, 'SEMESTRE');
+
+            if (selectedSemesters.size > 0 && colSemestre) {
+                filtered = filtered.filter(record => {
+                    const sem = formatValue(record.fields[colSemestre]) || 'Sans Semestre';
+                    return selectedSemesters.has(sem);
+                });
+            }
+
+            if (!searchQuery.trim()) return filtered;
+
+            const searchWords = searchQuery.toLowerCase().trim().split(/\s+/);
+            return filtered.filter(record => {
+                const rowData = columns.map(col => {
+                    return formatValue(record.fields[col]).toLowerCase();
+                }).join(' ');
+                return searchWords.every(word => rowData.includes(word));
+            });
+        }
+
+        // --- Rendu UI ---
+        function renderTabs() {
+            const container = document.getElementById('tabs-container');
+            container.innerHTML = tables.map(table => {
+                const displayName = getDisplayName(table.id);
+                const isActive = activeTableId === table.id;
+                
+                let icon = 'book-open';
+                if (displayName.toLowerCase().includes('formateur')) icon = 'users';
+                if (displayName.toLowerCase().includes('m2e') || displayName.toLowerCase().includes('master')) icon = 'graduation-cap';
+                
+                const activeClasses = isActive 
+                    ? 'bg-blue-600 text-white font-medium shadow-sm' 
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white';
+
+                return `
+                    <button onclick="changeTab('${table.id}')" class="flex items-center space-x-2 px-4 py-2.5 rounded-lg transition-colors whitespace-nowrap ${activeClasses}">
+                        <i data-lucide="${icon}" class="w-4 h-4"></i>
+                        <span>${displayName}</span>
+                    </button>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        window.changeTab = (tableId) => {
+            activeTableId = tableId;
+            searchQuery = '';
+            document.getElementById('search-input').value = '';
+            renderTabs();
+            loadRecords(tableId);
+        };
+
+        function renderSemesterFilters(availableSemesters) {
+            const container = document.getElementById('semester-filters-container');
+            if (availableSemesters.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+            container.classList.remove('hidden');
+            
+            let html = `
+                <button onclick="toggleSemester('ALL')" 
+                        class="px-4 py-1.5 text-sm font-medium rounded-full border transition-colors ${selectedSemesters.size === 0 ? 'bg-slate-800 text-white border-slate-800 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">
+                    Tous les semestres
+                </button>
+            `;
+
+            availableSemesters.sort().forEach(sem => {
+                const isActive = selectedSemesters.has(sem);
+                html += `
+                    <button onclick="toggleSemester('${sem.replace(/'/g, "\\'")}')" 
+                            class="px-4 py-1.5 text-sm font-medium rounded-full border transition-colors ${isActive ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">
+                        ${sem}
+                    </button>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        window.toggleSemester = (sem) => {
+            if (sem === 'ALL') {
+                selectedSemesters.clear();
+            } else {
+                if (selectedSemesters.has(sem)) selectedSemesters.delete(sem);
+                else selectedSemesters.add(sem);
+            }
+            renderView();
+        };
+
+        // --- Moteur de Vue Principal ---
+        function renderView() {
+            const activeTableName = getDisplayName(activeTableId);
+            document.getElementById('active-table-title').textContent = activeTableName;
+            
+            const columns = records.length > 0 ? Object.keys(records[0].fields).filter(k => !k.startsWith('gristHelper_')) : [];
+            const colCode = detectColumn(columns, 'CODE');
+            const colIntitule = detectColumn(columns, 'INTITULE');
+            const colSemestre = detectColumn(columns, 'SEMESTRE');
+            
+            // Activation stricte de la vue "Cartes" pour les Maquettes
+            const searchString = (activeTableName + ' ' + activeTableId).toLowerCase();
+            const isMaquetteView = searchString.includes('maquette') || searchString.includes('lpe') || searchString.includes('m2e') || (colCode && colIntitule);
+
+            let availableSemesters = [];
+            if (isMaquetteView && colSemestre) {
+                const semSet = new Set();
+                records.forEach(r => {
+                    const val = formatValue(r.fields[colSemestre]);
+                    if (val) semSet.add(val);
+                });
+                availableSemesters = Array.from(semSet);
+            }
+            renderSemesterFilters(availableSemesters);
+
+            const filteredRecords = getFilteredRecords(columns);
+            document.getElementById('active-table-count').textContent = `${filteredRecords.length} enregistrements filtrés`;
+
+            const mainContent = document.getElementById('main-content');
+
+            if (filteredRecords.length === 0) {
+                mainContent.innerHTML = `<div class="text-center py-20 text-slate-500"><i data-lucide="database" class="mx-auto w-12 h-12 mb-4 text-slate-300"></i><p>Aucun résultat correspondant.</p></div>`;
+                lucide.createIcons();
+                return;
+            }
+
+            if (isMaquetteView) {
+                renderMaquetteView(filteredRecords, columns, mainContent);
+            } else {
+                renderTableView(filteredRecords, columns, mainContent);
+            }
+            lucide.createIcons();
+        }
+
+        function renderMaquetteView(filteredRecords, columns, container) {
+            const colCode = detectColumn(columns, 'CODE');
+            const colIntitule = detectColumn(columns, 'INTITULE');
+            const colSemestre = detectColumn(columns, 'SEMESTRE');
+            const colECTS = detectColumn(columns, 'ECTS');
+            const colEC = detectColumn(columns, 'EC');
+            const colDiscipline = detectColumn(columns, 'DISCIPLINE');
+
+            const colsINSPE = columns.filter(c => detectColumn([c], 'INSPE'));
+            const colsEN = columns.filter(c => detectColumn([c], 'EN'));
+            const colsCM = columns.filter(c => detectColumn([c], 'CM'));
+            const colsTD = columns.filter(c => detectColumn([c], 'TD'));
+            const colsTP = columns.filter(c => detectColumn([c], 'TP'));
+
+            const grouped = {};
+            filteredRecords.forEach(record => {
+                const rawCode = colCode ? record.fields[colCode] : null;
+                const ueCode = formatValue(rawCode) || `Ligne-${record.id}`;
+                let ueName = (colIntitule && record.fields[colIntitule]) ? formatValue(record.fields[colIntitule]) : '';
+                
+                if (ueName && ueCode !== `Ligne-${record.id}` && ueName.toLowerCase().startsWith(ueCode.toLowerCase())) {
+                    ueName = ueName.substring(ueCode.length).replace(/^[\s\-\.:_]+/, '');
+                }
+
+                if (!grouped[ueCode]) {
+                    grouped[ueCode] = { 
+                        code: ueCode !== `Ligne-${record.id}` ? ueCode : 'UE', 
+                        name: ueName,
+                        ects: colECTS ? formatValue(record.fields[colECTS]) : null,
+                        semestre: colSemestre ? formatValue(record.fields[colSemestre]) || 'Sans Semestre' : 'Sans Semestre',
+                        lignes: [],
+                        totalInspe: 0,
+                        totalEn: 0
+                    };
+                }
+
+                // Calcul précis par type d'heure pour éviter d'embarquer les colonnes "Total" ou textuelles
+                let cmInspe = 0, tdInspe = 0, tpInspe = 0;
+                let cmEn = 0, tdEn = 0, tpEn = 0;
+
+                colsINSPE.forEach(c => {
+                    const val = parseNumber(record.fields[c]);
+                    if (colsCM.includes(c)) cmInspe += val;
+                    if (colsTD.includes(c)) tdInspe += val;
+                    if (colsTP.includes(c)) tpInspe += val;
+                });
+
+                colsEN.forEach(c => {
+                    const val = parseNumber(record.fields[c]);
+                    if (colsCM.includes(c)) cmEn += val;
+                    if (colsTD.includes(c)) tdEn += val;
+                    if (colsTP.includes(c)) tpEn += val;
+                });
+
+                // Les totaux des cartes sont mathématiquement la somme de leurs composantes
+                const hInspe = cmInspe + tdInspe + tpInspe;
+                const hEn = cmEn + tdEn + tpEn;
+
+                grouped[ueCode].totalInspe += hInspe;
+                grouped[ueCode].totalEn += hEn;
+
+                const ecVal = colEC ? formatValue(record.fields[colEC]) : null;
+                const discVal = colDiscipline ? formatValue(record.fields[colDiscipline]) : null;
+
+                const hasData = (ecVal || discVal || hInspe > 0 || hEn > 0);
+                
+                if (hasData) {
+                    grouped[ueCode].lignes.push({
+                        ec: ecVal,
+                        discipline: discVal,
+                        hInspe, hEn, cmInspe, tdInspe, tpInspe, cmEn, tdEn, tpEn
+                    });
+                }
+            });
+
+            const html = `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start">` + 
+                Object.values(grouped).map(ue => {
+                    const pctInspe = ue.totalInspe + ue.totalEn > 0 ? (ue.totalInspe / (ue.totalInspe + ue.totalEn)) * 100 : 0;
+                    const pctEN = ue.totalInspe + ue.totalEn > 0 ? (ue.totalEn / (ue.totalInspe + ue.totalEn)) * 100 : 0;
+
+                    let lignesHtml = ue.lignes.map(ligne => {
+                        const showInspe = ligne.hInspe > 0;
+                        const showEn = ligne.hEn > 0;
+                        if (!showInspe && !showEn && !ligne.ec && !ligne.discipline) return '';
+
+                        return `
+                        <div class="mb-3 last:mb-0 bg-slate-50 border border-slate-100 rounded-lg p-3">
+                            ${ligne.ec ? `<div class="font-semibold text-slate-800 text-sm flex items-center mb-1"><i data-lucide="book-open" class="w-3.5 h-3.5 mr-1.5 text-blue-500"></i>EC : ${ligne.ec}</div>` : ''}
+                            ${ligne.discipline ? `<div class="inline-block bg-white border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md mb-2">${ligne.discipline}</div>` : ''}
+                            
+                            ${(showInspe || showEn) ? `
+                            <div class="grid ${showInspe && showEn ? 'grid-cols-2 gap-2' : 'grid-cols-1'} mt-1">
+                                ${showInspe ? `
+                                <div class="bg-blue-50/50 p-2 rounded border border-blue-100/50">
+                                    <div class="text-[10px] font-bold text-blue-800 uppercase mb-1">INSPÉ (${ligne.hInspe}h)</div>
+                                    <div class="text-xs text-blue-900 grid grid-cols-3 gap-1">
+                                        ${ligne.cmInspe > 0 ? `<div><span class="text-blue-400">CM</span> ${ligne.cmInspe}h</div>` : '<div></div>'}
+                                        ${ligne.tdInspe > 0 ? `<div><span class="text-blue-400">TD</span> ${ligne.tdInspe}h</div>` : '<div></div>'}
+                                        ${ligne.tpInspe > 0 ? `<div><span class="text-blue-400">TP</span> ${ligne.tpInspe}h</div>` : '<div></div>'}
+                                    </div>
+                                </div>` : ''}
+                                ${showEn ? `
+                                <div class="bg-emerald-50/50 p-2 rounded border border-emerald-100/50">
+                                    <div class="text-[10px] font-bold text-emerald-800 uppercase mb-1">Éduc. Nat. (${ligne.hEn}h)</div>
+                                    <div class="text-xs text-emerald-900 grid grid-cols-3 gap-1">
+                                        ${ligne.cmEn > 0 ? `<div><span class="text-emerald-400">CM</span> ${ligne.cmEn}h</div>` : '<div></div>'}
+                                        ${ligne.tdEn > 0 ? `<div><span class="text-emerald-400">TD</span> ${ligne.tdEn}h</div>` : '<div></div>'}
+                                        ${ligne.tpEn > 0 ? `<div><span class="text-emerald-400">TP</span> ${ligne.tpEn}h</div>` : '<div></div>'}
+                                    </div>
+                                </div>` : ''}
+                            </div>
+                            ` : ''}
+                        </div>`;
+                    }).join('');
+
+                    return `
+                    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-0">
+                        <div class="flex flex-col gap-1 mb-3">
+                            ${ue.semestre && ue.semestre !== 'Sans Semestre' ? `
+                            <div class="flex items-center text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">
+                                <i data-lucide="calendar" class="w-3 h-3 mr-1.5 opacity-80"></i> ${ue.semestre}
+                            </div>
+                            ` : ''}
+                            <div class="flex justify-between items-start w-full">
+                                <span class="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                    ${ue.code}
+                                </span>
+                                ${ue.ects ? `<span class="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">${ue.ects} ECTS</span>` : ''}
+                            </div>
+                            ${ue.name ? `<h4 class="font-bold text-slate-800 text-base leading-snug break-words whitespace-normal mt-1">${ue.name}</h4>` : ''}
+                        </div>
+
+                        ${(ue.totalInspe > 0 || ue.totalEn > 0) ? `
+                        <div class="mb-4 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            <div class="flex justify-between text-[10px] font-bold uppercase tracking-wide mb-1.5">
+                                <span class="text-blue-700 flex items-center"><i data-lucide="building-2" class="w-3 h-3 mr-1"></i> INSPÉ (${ue.totalInspe}h)</span>
+                                <span class="text-emerald-700 flex items-center">EN (${ue.totalEn}h) <i data-lucide="school" class="w-3 h-3 ml-1"></i></span>
+                            </div>
+                            <div class="flex h-2 rounded-full overflow-hidden bg-slate-200">
+                                ${pctInspe > 0 ? `<div class="bg-blue-500" style="width: ${pctInspe}%"></div>` : ''}
+                                ${pctEN > 0 ? `<div class="bg-emerald-500" style="width: ${pctEN}%"></div>` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div class="flex flex-col space-y-0">
+                            ${lignesHtml}
+                        </div>
+                    </div>`;
+                }).join('') + `</div>`;
+            
+            container.innerHTML = html;
+        }
+
+        function renderTableView(filteredRecords, columns, container) {
+            const html = `
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                                <tr>${columns.map(c => `<th class="px-6 py-4">${c}</th>`).join('')}</tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${filteredRecords.map(r => `
+                                    <tr class="hover:bg-slate-50">
+                                        ${columns.map(c => `<td class="px-6 py-4 text-slate-700">${typeof r.fields[c] === 'boolean' ? (r.fields[c] ? 'Oui':'Non') : formatValue(r.fields[c])}</td>`).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            container.innerHTML = html;
+        }
+
+        // --- Initialisation ---
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            searchQuery = e.target.value;
+            renderView();
+        });
+
+        // Démarrage
+        loadTables();
+    </script>
+</body>
+</html>
