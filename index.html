@@ -36,7 +36,7 @@
                     </div>
                 </div>
 
-                <!-- Mode Démo Alert (si besoin) -->
+                <!-- Mode Démo Alert -->
                 <div id="demo-alert" class="hidden items-center space-x-2 text-yellow-500 bg-yellow-500/10 px-3 py-1.5 rounded-full border border-yellow-500/20 text-xs font-medium">
                     <i data-lucide="alert-circle" class="w-4 h-4"></i>
                     <span>Mode Démo (API restreinte)</span>
@@ -142,7 +142,6 @@
 
         function formatValue(val) {
             if (val === null || val === undefined) return '';
-            // Grist envoie parfois les Listes de Choix sous forme de tableau commençant par "L" (ex: ["L", "SVT"])
             if (Array.isArray(val)) {
                 if (val.length > 0 && (val[0] === 'L' || val[0] === 'l')) {
                     return val.slice(1).join(', ');
@@ -157,7 +156,6 @@
             if (!cols || !Array.isArray(cols)) return undefined;
             const normalized = cols.map(c => ({
                 orig: c,
-                // On met en minuscule et on retire les accents (ex: "Matière" -> "matiere")
                 low: c.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
             }));
 
@@ -173,7 +171,7 @@
             };
 
             switch(type) {
-                case 'EN': return check(['en'], [' en', '_en', 'education']);
+                case 'EN': return check(['en'], [' en', '_en', '-en', '(en', 'education', 'educ. nat']);
                 case 'INSPE': return check(['inspe'], ['inspe', 'univ']);
                 case 'CODE': return check(['code', 'ue'], ['code ue', 'code_ue']);
                 case 'INTITULE': return check(['intitule', 'titre', 'nom'], ['intitul', 'libelle']);
@@ -181,9 +179,9 @@
                 case 'SEMESTRE': return check(['semestre'], ['semestre', 'periode']);
                 case 'EC': return check(['ec'], ['code ec', 'element']);
                 case 'DISCIPLINE': return check(['discipline', 'domaine', 'matiere'], ['discipline', 'domaine', 'matiere']);
-                case 'CM': return check(['cm'], ['cm']);
-                case 'TD': return check(['td'], ['td']);
-                case 'TP': return check(['tp'], ['tp']);
+                case 'CM': return check(['cm'], ['cm', 'magistral', 'magistraux']);
+                case 'TD': return check(['td'], ['td', 'dirige']);
+                case 'TP': return check(['tp'], ['tp', 'pratique']);
                 default: return undefined;
             }
         }
@@ -412,13 +410,12 @@
                     };
                 }
 
-                let hInspe = 0, hEn = 0;
+                // Calcul précis par type d'heure pour éviter d'embarquer les colonnes "Total" ou textuelles
                 let cmInspe = 0, tdInspe = 0, tpInspe = 0;
                 let cmEn = 0, tdEn = 0, tpEn = 0;
 
                 colsINSPE.forEach(c => {
                     const val = parseNumber(record.fields[c]);
-                    hInspe += val;
                     if (colsCM.includes(c)) cmInspe += val;
                     if (colsTD.includes(c)) tdInspe += val;
                     if (colsTP.includes(c)) tpInspe += val;
@@ -426,11 +423,14 @@
 
                 colsEN.forEach(c => {
                     const val = parseNumber(record.fields[c]);
-                    hEn += val;
                     if (colsCM.includes(c)) cmEn += val;
                     if (colsTD.includes(c)) tdEn += val;
                     if (colsTP.includes(c)) tpEn += val;
                 });
+
+                // Les totaux des cartes sont mathématiquement la somme de leurs composantes
+                const hInspe = cmInspe + tdInspe + tpInspe;
+                const hEn = cmEn + tdEn + tpEn;
 
                 grouped[ueCode].totalInspe += hInspe;
                 grouped[ueCode].totalEn += hEn;
